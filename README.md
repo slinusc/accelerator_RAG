@@ -1,6 +1,6 @@
-# SwissFEL Agentic RAG System
+# Agentic RAG System for the accelerator at PSI
 
-An intelligent Retrieval-Augmented Generation (RAG) system designed for SwissFEL commissioning data, integrating ELOG operational logs with a comprehensive knowledge graph of machine specifications, procedures, and guidelines.
+An intelligent Retrieval-Augmented Generation (RAG) system designed for accelerator commissioning data, integrating ELOG operational logs with a comprehensive knowledge graph of machine specifications, procedures, and guidelines.
 
 ## Architecture Overview
 
