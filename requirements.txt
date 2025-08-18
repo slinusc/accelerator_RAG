@@ -1,0 +1,44 @@
+# Core RAG dependencies
+elog>=1.3.3
+ollama>=0.1.8
+qdrant-client>=1.7.0
+neo4j>=5.15.0
+
+# ML/AI dependencies
+sentence-transformers>=2.2.2
+transformers>=4.36.0
+torch>=2.1.0
+numpy>=1.24.0
+pandas>=2.1.0
+
+# Web framework and API
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.5.0
+
+# Agent framework
+langchain>=0.1.0
+langchain-community>=0.0.10
+langchain-ollama>=0.1.0
+
+# Data processing
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+python-multipart>=0.0.6
+
+# Configuration and utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+click>=8.1.0
+rich>=13.7.0
+
+# Monitoring and logging
+prometheus-client>=0.19.0
+structlog>=23.2.0
+
+# Development dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.11.0
+flake8>=6.1.0
+mypy>=1.7.0

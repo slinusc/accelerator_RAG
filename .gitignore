@@ -1,0 +1,154 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+.env
+.env.example
+.env.local
+.env.development
+.env.production
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Project specific logs
+*.log
+logs/
+*.out
+
+# Database files
+*.db
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+/temp/
+
+# Cache directories
+.cache/
+.pytest_cache/
+
+# Model files (large files that shouldn't be in git)
+models/
+*.bin
+*.safetensors
+*.model
+*.pt
+*.pth
+*.ckpt
+
+# Data directories (may contain sensitive information)
+data/
+raw_data/
+processed_data/
+outputs/
+results/
+
+# Configuration files with secrets
+config.ini
+config.yaml
+config.json
+secrets.json
+.secrets
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Documentation build
+docs/_build/
+site/
+
+# RAG specific
+# Vector database files
+*.faiss
+*.index
+chroma_db/
+qdrant_data/
+
+# ELOG cache/temp files
+elog_cache/
+*.elog
+
+# Knowledge graph exports
+*.graphml
+*.gexf
+
+# API keys and credentials
+api_keys.txt
+credentials.json
+.credentials
+
+# Local development
+local_config.py
+dev_settings.py
+test_data/
