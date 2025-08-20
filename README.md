@@ -234,4 +234,3 @@ This project is part of the SwissFEL commissioning infrastructure at PSI.
 For issues and questions:
 - Check the system health endpoint: `/health`
 - Review logs for error details
-- Contact the SwissFEL commissioning team
