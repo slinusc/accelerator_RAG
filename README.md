@@ -1,4 +1,4 @@
-# Agentic RAG System for the accelerator at PSI
+# Agentic RAG System for accelerator operations at PSI
 
 An intelligent Retrieval-Augmented Generation (RAG) system designed for accelerator commissioning data, integrating ELOG operational logs with a comprehensive knowledge graph of machine specifications, procedures, and guidelines.
 
