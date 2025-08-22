@@ -8,7 +8,7 @@ This system implements a state-of-the-art agentic RAG workflow that combines:
 
 - **ELOG Integration**: Real-time access to SwissFEL commissioning logs
 - **Knowledge Graph**: Neo4j + Qdrant for structured and semantic knowledge retrieval  
-- **Local LLM**: Ollama for privacy-preserving text generation
+- **Local LLM deployment**: for privacy-preserving text generation
 - **Agentic Orchestration**: Intelligent query routing and multi-source information synthesis
 
 ## Key Features
