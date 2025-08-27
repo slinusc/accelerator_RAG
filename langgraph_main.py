@@ -225,24 +225,29 @@ EVALUATOR_SYS = (
   "STRICT JSON ONLY. No prose, no code fences."
 )
 
-REPORTER_SYS = """You are the ELOG Evidence Reporter.
-Return STRICT JSON only, following EXACTLY this schema (no extra keys):
+REPORTER_SYS = """You are an expert SwissFEL accelerator system analyst.
 
-{
-  "status": "ok | partial | no_hit | error",
-  "query": "string",
-  "iterations": ...,
-  "text": ["bullet 1", "bullet 2"],
-  "citations": ["https://elog.../37964"],
-  "notes": "string"
-}
+CRITICAL INSTRUCTION: First check if the provided ELOG data directly answers the user's specific query.
 
-Rules:
-- Use the key name "columns" (never "headers").
-- status ∈ {ok, partial, no_hit, error}.
-- Copy the provided 'hits' array into 'raw_hits' (do not rename fields).
-- Prefer ISO8601 timestamps with Z (e.g., 2025-07-05T13:32:29Z).
-- Do not include markdown or comments.
+For device-specific queries (e.g., "What's the status of SATUN18?"):
+- If NO entries specifically mention the requested device by name, start your response with: 
+  "### Query Result: No Specific Information Found\n\nNo recent ELOG entries were found that specifically mention [DEVICE_NAME] or its current status/reset activity."
+- Then provide any contextually relevant information from related systems if available.
+- Be honest about data limitations.
+
+For general queries with relevant data, write a comprehensive technical summary in markdown format.
+
+Focus on:
+- Critical incidents and their impact on operations
+- System-specific issues (RF, Controls, Diagnostics, etc.) 
+- Temporal patterns and recurring problems
+- Device-specific failures and resets
+- Operational significance and severity assessment
+
+Use clear headings, bullet points, and technical terminology. 
+Highlight the most important incidents first.
+Reference specific elog_ids when discussing incidents.
+Be direct and honest about what information was actually found vs. what was requested.
 """
 
 
@@ -297,10 +302,15 @@ logger = logging.getLogger("LangGraph")
 import pytz
 from datetime import datetime
 import json
+import time
 
 def planner_node(state: GraphState) -> GraphState:
+    start_time = time.time()
+    
     if state.get("iterations") is None:
         state["iterations"] = 0
+    if state.get("timing") is None:
+        state["timing"] = {}
 
     refinement = state.get("evaluation", {}).get("refinement")
     user_prompt = state["user_query"]
@@ -312,7 +322,10 @@ def planner_node(state: GraphState) -> GraphState:
     now_iso = datetime.now(tz).isoformat(timespec="seconds")
     payload = json.dumps({"now": now_iso, "user_query": user_prompt}, ensure_ascii=False)
 
+    llm_start = time.time()
     out = call_llm_prompt_ollama(PLANNER_SYS, payload, images=None, temperature=0.0, max_tokens=300)
+    llm_time = time.time() - llm_start
+    
     logger.info(f"{Fore.BLUE}[Planner]{Style.RESET_ALL} user_prompt: {user_prompt}")
     logger.info(f"{Fore.BLUE}[Planner]{Style.RESET_ALL} LLM output: {out}")
 
@@ -344,7 +357,16 @@ def planner_node(state: GraphState) -> GraphState:
     }
 
     state["plan"] = plan
+    
+    # Record timing
+    total_time = time.time() - start_time
+    state["timing"]["planner"] = {
+        "total": round(total_time, 3),
+        "llm": round(llm_time, 3)
+    }
+    
     logger.info(f"{Fore.BLUE}[Planner]{Style.RESET_ALL} Parsed plan: {state['plan']}")
+    logger.info(f"{Fore.BLUE}[Planner]{Style.RESET_ALL} Timing: {total_time:.3f}s (LLM: {llm_time:.3f}s)")
     return state
 
 
@@ -427,6 +449,8 @@ def reporter_node(state):
       - hits: List[dict]  (from Searcher; we pass these through to raw_hits)
       - plan: dict (to check if this is a respond-only case)
     """
+    start_time = time.time()
+    
     user_query = state["user_query"]
     hits = state.get("hits", []) or []
     plan = state.get("plan", {})
@@ -472,40 +496,37 @@ def reporter_node(state):
 
     logger.info(f"{Fore.CYAN}[Reporter]{Style.RESET_ALL} User query: {user_query}")
     logger.info(f"{Fore.CYAN}[Reporter]{Style.RESET_ALL} Payload: {json.dumps(user_payload, ensure_ascii=False)}")
+    
+    llm_start = time.time()
     llm_resp = call_llm_prompt_ollama(
         system=sys_prompt,
         user_text=json.dumps(user_payload, ensure_ascii=False),
         temperature=0.0,
         max_tokens=1200,
     )
+    llm_time = time.time() - llm_start
+    
     logger.info(f"{Fore.CYAN}[Reporter]{Style.RESET_ALL} LLM output: {llm_resp}")
-    try:
-        data = json.loads(llm_resp)
-        logger.info(f"{Fore.CYAN}[Reporter]{Style.RESET_ALL} Parsed report: {data}")
-    except Exception as e:
-        logger.error(f"{Fore.RED}[Reporter]{Style.RESET_ALL} Error parsing JSON: {e}")
-        data = {
-            "status": "ok",
-            "query": user_query,
-            "iterations": 1,
-            "text": [
-                f"Found {len(hits)} relevant ELOG entries for '{user_query}'."
-            ],
-            "tables": [
-                {
-                    "title": "DRM Resets / Related Events",
-                    "columns": ["elog_id","device","event","value","unit","timestamp","author"],
-                    "rows": table_rows
-                }
-            ],
-            "figures": [],
-            "citations": [
-                {"elog_id": h.get("elog_id",""), "url": h.get("url","")}
-                for h in hits if h.get("elog_id") and h.get("url")
-            ],
-            "raw_hits": hits,
-            "notes": f"Reporter JSON parse error: {e}"
-        }
+    
+    # Record timing
+    total_time = time.time() - start_time
+    if "timing" not in state:
+        state["timing"] = {}
+    state["timing"]["reporter"] = {
+        "total": round(total_time, 3),
+        "llm": round(llm_time, 3)
+    }
+    
+    # Build structured JSON status directly from LangGraph state (no LLM parsing)
+    data = {
+        "status": "ok" if hits else "no_hit",
+        "query": user_query,
+        "iterations": state.get("iterations", 1),
+        "text": [llm_resp],  # Store the human-readable LLM analysis
+        "citations": [],
+        "notes": f"Analysis completed - {len(hits)} entries processed",
+        "timing": state.get("timing", {})  # Include timing in final output
+    }
     allowed = {"ok","partial","no_hit","error"}
     if data.get("status") not in allowed:
         data["status"] = "ok"
@@ -520,12 +541,16 @@ def reporter_node(state):
         raw_hits=data.get("raw_hits", hits),
         notes=data.get("notes", ""),
     )
+    
+    logger.info(f"{Fore.CYAN}[Reporter]{Style.RESET_ALL} Timing: {total_time:.3f}s (LLM: {llm_time:.3f}s)")
     return {"report": report}
 
 def analyzer_node(state: GraphState) -> GraphState:
     """
     Execute agentic analysis plans using ActionExecutor
     """
+    start_time = time.time()
+    
     user_query = state["user_query"]
     plan = state.get("plan", {})
     query_type = plan.get("query_type", "general_search")
@@ -562,17 +587,30 @@ def analyzer_node(state: GraphState) -> GraphState:
         
         # Execute the action plan
         logger.info(f"{Fore.GREEN}[Analyzer]{Style.RESET_ALL} Executing {action_plan.plan_type} plan with {len(action_plan.steps)} steps")
+        execution_start = time.time()
         results = executor.execute_plan(action_plan)
+        execution_time = time.time() - execution_start
         
         # Convert results to expected format
         hits = results.get("hits", [])
         logger.info(f"{Fore.GREEN}[Analyzer]{Style.RESET_ALL} Analysis completed: {len(hits)} hits, {len(results.get('steps', []))} steps executed")
         
+        # Record timing
+        total_time = time.time() - start_time
+        if "timing" not in state:
+            state["timing"] = {}
+        state["timing"]["analyzer"] = {
+            "total": round(total_time, 3),
+            "execution": round(execution_time, 3),
+            "step_details": results.get("timing", {})
+        }
+        
         # Add analysis metadata to state
         state["hits"] = hits
         state["analysis_results"] = results
-        state["evaluation"] = {"decision": "accept", "reason": "Multi-step analysis completed successfully"}
+        # Let evaluator assess the quality of analysis results
         
+        logger.info(f"{Fore.GREEN}[Analyzer]{Style.RESET_ALL} Timing: {total_time:.3f}s (execution: {execution_time:.3f}s)")
         return state
         
     except Exception as e:
@@ -616,8 +654,8 @@ def build_graph():
 
     g.add_conditional_edges("evaluator", on_eval, {"planner": "planner", "reporter": "reporter"})
     
-    # Analyzer path goes directly to reporter (no evaluation needed)
-    g.add_edge("analyzer", "reporter")
+    # Analyzer path goes through evaluator for quality assessment
+    g.add_edge("analyzer", "evaluator")
     
     g.add_edge("reporter", END)
     return g.compile()

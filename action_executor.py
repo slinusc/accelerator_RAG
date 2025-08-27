@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, Union
 from datetime import datetime, timezone, timedelta
 from dataclasses import asdict
 import logging
+import time
 from colorama import Fore, Style
 
 # Import ElasticSearch functions
@@ -62,6 +63,8 @@ class ActionExecutor:
     
     def execute_plan(self, plan: SearchPlan, original_query: str = "", context: Dict = None) -> Dict[str, Any]:
         """Execute a complete multi-step search plan"""
+        plan_start_time = time.time()
+        
         logger.info(f"{Fore.GREEN}[ActionExecutor]{Style.RESET_ALL} Executing plan: {plan.plan_type}")
         logger.info(f"{Fore.GREEN}[ActionExecutor]{Style.RESET_ALL} Plan description: {plan.description}")
         
@@ -71,7 +74,8 @@ class ActionExecutor:
             "steps": [],
             "hits": [],
             "analysis": {},
-            "synthesis": plan.synthesis_prompt
+            "synthesis": plan.synthesis_prompt,
+            "timing": {}
         }
         
         # Cache context for reranking
@@ -83,6 +87,9 @@ class ActionExecutor:
         current_hits = []
         
         for i, step in enumerate(plan.steps):
+            step_start_time = time.time()
+            step_name = f"step_{i+1}_{step.action_type}"
+            
             logger.info(f"{Fore.YELLOW}[ActionExecutor]{Style.RESET_ALL} Executing step {i+1}/{len(plan.steps)}: {step.action_type}")
             
             try:
@@ -102,20 +109,29 @@ class ActionExecutor:
                     # Cache results for next step
                     self.results_cache['current_hits'] = current_hits
                 
+                # Record timing for successful step
+                step_time = time.time() - step_start_time
+                results["timing"][step_name] = round(step_time, 3)
+                
                 results["steps"].append({
                     "step": i + 1,
                     "action": step.action_type,
                     "results_count": len(step_results) if isinstance(step_results, list) else 1,
+                    "duration_seconds": round(step_time, 3),
                     "success": True
                 })
-                logger.info(f"{Fore.YELLOW}[ActionExecutor]{Style.RESET_ALL} Step {i+1} results count: {len(step_results) if isinstance(step_results, list) else 1}")
+                logger.info(f"{Fore.YELLOW}[ActionExecutor]{Style.RESET_ALL} Step {i+1} results count: {len(step_results) if isinstance(step_results, list) else 1} (took {step_time:.3f}s)")
                 
             except Exception as e:
+                step_time = time.time() - step_start_time
+                results["timing"][step_name] = round(step_time, 3)
+                
                 logger.error(f"Step {i+1} failed: {e}")
                 results["steps"].append({
                     "step": i + 1,
                     "action": step.action_type,
                     "error": str(e),
+                    "duration_seconds": round(step_time, 3),
                     "success": False
                 })
         
@@ -129,7 +145,13 @@ class ActionExecutor:
                 unique_hits.append(hit)
         
         results["hits"] = unique_hits
+        
+        # Record total plan execution time
+        total_plan_time = time.time() - plan_start_time
+        results["timing"]["total_plan"] = round(total_plan_time, 3)
+        
         logger.info(f"{Fore.GREEN}[ActionExecutor]{Style.RESET_ALL} Plan execution completed. Total unique hits: {len(unique_hits)}")
+        logger.info(f"{Fore.GREEN}[ActionExecutor]{Style.RESET_ALL} Total execution time: {total_plan_time:.3f}s")
         return results
     
     # ========================================================================
@@ -435,14 +457,26 @@ class ActionExecutor:
             logger.warning("[SmartRerank] No hits to rerank")
             return []
         
-        logger.info(f"[SmartRerank] Reranking {len(current_hits)} hits using {action.method} method, target_k={action.target_k}")
+        # Adaptive target_k based on incident severity and count
+        # For temporal analysis, don't artificially limit if there are many critical incidents
+        adaptive_target_k = action.target_k
+        
+        # Count high-importance incidents (score >= 2.0)
+        high_importance_count = len([hit for hit in current_hits if hit.get('importance_score', 0) >= 2.0])
+        
+        # If we have many high-importance incidents, increase the limit
+        if high_importance_count > action.target_k:
+            adaptive_target_k = min(high_importance_count + 5, len(current_hits))
+            logger.info(f"[SmartRerank] Found {high_importance_count} high-importance incidents, expanding target_k to {adaptive_target_k}")
+        
+        logger.info(f"[SmartRerank] Reranking {len(current_hits)} hits using {action.method} method, target_k={adaptive_target_k}")
         
         try:
             from smart_reranker import SmartReranker, RerankConfig
             
             config = RerankConfig(
                 method=action.method,
-                target_k=action.target_k,
+                target_k=adaptive_target_k,
                 max_per_category=action.max_per_category
             )
             

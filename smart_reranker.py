@@ -7,12 +7,21 @@ lightweight LLM calls, or hybrid approaches.
 """
 
 import logging
+import os
 from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
+
+# Cross-encoder for neural reranking
+try:
+    from sentence_transformers import CrossEncoder
+    CROSSENCODER_AVAILABLE = True
+except ImportError:
+    CrossEncoder = None
+    CROSSENCODER_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +31,12 @@ class RerankConfig:
     method: str = "hybrid"  # "semantic", "llm", "hybrid"
     target_k: int = 10      # Final number of results
     
-    # Semantic config
-    model_name: str = "BAAI/bge-reranker-v2-m3"  # Lightweight, fast model
-    semantic_weight: float = 0.7
+    # Semantic config - using cross-encoder for proper reranking
+    model_name: str = "cross-encoder/ms-marco-TinyBERT-L-2-v2"  # Smaller neural reranker
+    semantic_weight: float = 0.5
     
     # LLM config  
-    llm_weight: float = 0.3
+    llm_weight: float = 0.5
     batch_size: int = 20    # Process in batches for efficiency
     
     # Diversity
@@ -46,15 +55,28 @@ class SmartReranker:
             self._load_semantic_model()
     
     def _load_semantic_model(self):
-        """Lazy load semantic model"""
+        """Load cross-encoder model for neural reranking"""
         if self.semantic_model is None:
             try:
-                logger.info(f"Loading semantic model: {self.config.model_name}")
-                self.semantic_model = SentenceTransformer(self.config.model_name)
+                if CROSSENCODER_AVAILABLE and "cross-encoder" in self.config.model_name:
+                    logger.info(f"Loading cross-encoder reranker: {self.config.model_name}")
+                    
+                    # Try to load the cross-encoder model
+                    logger.info("Attempting to load cross-encoder without authentication")
+                    self.semantic_model = CrossEncoder(self.config.model_name)
+                    
+                    self.is_cross_encoder = True
+                else:
+                    # Fallback to simple text-based scoring
+                    logger.info("Cross-encoder not available, falling back to text-based scoring")
+                    self.semantic_model = "fallback"
+                    self.is_cross_encoder = False
+                    
             except Exception as e:
-                logger.warning(f"Failed to load semantic model {self.config.model_name}: {e}")
+                logger.warning(f"Failed to load cross-encoder {self.config.model_name}: {e}")
                 logger.info("Falling back to simple text-based scoring")
                 self.semantic_model = "fallback"
+                self.is_cross_encoder = False
     
     def rerank(self, 
                hits: List[Dict[str, Any]], 
@@ -93,9 +115,6 @@ class SmartReranker:
             # Simple text-based scoring fallback
             return self._fallback_text_rerank(hits, query, context)
         
-        # Create embeddings
-        query_embedding = self.semantic_model.encode([query])
-        
         # Combine title + snippet for better semantic matching
         texts = []
         for hit in hits:
@@ -107,13 +126,23 @@ class SmartReranker:
                 text += f" {hit.get('system')}"
             texts.append(text)
         
-        hit_embeddings = self.semantic_model.encode(texts)
-        
-        # Calculate similarity scores
-        similarities = cosine_similarity(query_embedding, hit_embeddings)[0]
+        # Use CrossEncoder if available (best for reranking)
+        if hasattr(self, 'is_cross_encoder') and self.is_cross_encoder:
+            # CrossEncoder expects query-passage pairs
+            query_passage_pairs = [[query, text] for text in texts]
+            scores = self.semantic_model.predict(query_passage_pairs)
+            
+            # Ensure scores is a numpy array
+            if not isinstance(scores, np.ndarray):
+                scores = np.array(scores)
+        else:
+            # Standard SentenceTransformer approach
+            query_embedding = self.semantic_model.encode([query])
+            hit_embeddings = self.semantic_model.encode(texts)
+            scores = cosine_similarity(query_embedding, hit_embeddings)[0]
         
         # Apply time decay if timestamps available
-        scores = self._apply_time_decay(hits, similarities)
+        scores = self._apply_time_decay(hits, np.array(scores))
         
         # Sort by score and return top-k
         scored_hits = list(zip(hits, scores))
@@ -314,3 +343,10 @@ def quick_hybrid_rerank(hits: List[Dict], query: str, context: Dict = None, top_
     config = RerankConfig(method="hybrid", target_k=top_k)
     reranker = SmartReranker(config)
     return reranker.rerank(hits, query, context or {})
+
+
+if __name__ == "__main__":
+    # Example usage
+    sample_hits = [{"id": "1", "text": "Sample document 1"}, {"id": "2", "text": "Sample document 2"}]
+    sample_query = "Sample query"
+    print(quick_semantic_rerank(sample_hits, sample_query))

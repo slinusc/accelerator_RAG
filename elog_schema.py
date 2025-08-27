@@ -285,8 +285,8 @@ def create_temporal_analysis_plan(since: str, until: str, focus: str = "incident
             ),
             SmartRerankAction(
                 method="hybrid",
-                target_k=10,  # Reduce from 46 to 10 most important
-                max_per_category=3
+                target_k=25,  # Allow more incidents for temporal analysis
+                max_per_category=5  # More per category for comprehensive coverage
             ),
             AggregateByMetadataAction(
                 group_by=["category", "system", "domain"],
